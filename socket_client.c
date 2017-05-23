@@ -32,7 +32,8 @@ int main(int argc, char* args[]) {
   char* srv_adr;
   struct addrinfo *result,*p;
   struct addrinfo hints;
-  int running = 1;  
+  int running = 1;
+  int eingabeact = 1;  
 
 
   char msg[MSG_LEN];
@@ -79,7 +80,10 @@ int main(int argc, char* args[]) {
     
     printf("Enter command: \n");
       
-    fgets(msg, MSG_LEN, stdin);
+    if(eingabeact==1){
+        fgets(msg, MSG_LEN, stdin);
+    }
+    
     
               
               
@@ -91,9 +95,8 @@ int main(int argc, char* args[]) {
         if((send(s_tcp,msg, strlen(msg),0)) > 0) {
             //printf("Message %s sent.\n", msg); 
 	}
-        if((recv(s_tcp,buffer, strlen(buffer),0)) > 0) {
-            printf("Receive Message : \n", buffer); 
-	}      
+        eingabeact = 0;
+           
     } else if ((strncmp(msg, PUT, CMND_LEN)==0)){
     
     } else if ((strncmp(msg, LIST, CMND_LEN)==0)){
@@ -103,6 +106,11 @@ int main(int argc, char* args[]) {
         printf("wrong command\n");
     }
     
+    
+    if((recv(s_tcp, buffer, strlen(buffer), 0)) > 0) {
+        printf("Antwort is! : \n", buffer);
+        eingabeact = 1;
+    } 
     
 //    if((n=send(s_tcp,msg, strlen(msg),0)) > 0) {
 //	printf("Message %s sent ( %i Bytes).\n", msg, n); 
