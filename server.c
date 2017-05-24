@@ -8,11 +8,13 @@
 #include <stdio.h>
 #include <time.h>
 #include <netdb.h>
+#include <string.h> /* memset */
+#include <unistd.h> /* close */
 
 
 
 #define DEF_PORT	10258
-#define MSG_LEN	256
+#define MSG_LEN	512
 #define CMND_LEN 4
 #define LIST	"List"
 #define GET	"Get "
@@ -23,25 +25,29 @@ int main(int argc, char* args[]) {
 
     int s_tcp; /* socket descriptor (listener)*/
     int messenger; /* socket descriptor (send and recv)*/
-    char* port;
+    char* port = "10258";
     struct addrinfo *result, *p;
     struct addrinfo hints;
     int n;
+    int yes = 1;
+    struct sockaddr_storage their_addr; //client addr info 
+    socklen_t sin_size;
+    int recv_ready;
 
 
     char msg[MSG_LEN];
     char buffer[MSG_LEN];
 
-    if (argc == 2) {
-        port = args[1];
-    } else if (argc == 1) {
-        port = DEF_PORT;
-    } else {
-        perror("wrong parameters");
-        return 1;
-    }
+    //if (argc == 2) {
+    //    port = args[1];
+    //} else if (argc == 1) {
+    //    port = DEF_PORT;
+    //} else {
+    //   perror("wrong parameters");
+    //  return 1;
+    //}
 
-    memset(&hints, 0, sizeof hints);
+    memset(&hints, 0, sizeof (hints));
     hints.ai_family = AF_UNSPEC; // use IPv4 or IPv6, whichever
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
@@ -51,74 +57,84 @@ int main(int argc, char* args[]) {
         return 1;
     }
 
+
     for (p = result; p != NULL; p = p->ai_next) {
-        if ((s_tcp = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) < 0) {
-            perror("TCP Socket");
-            exit(1);
+        if ((s_tcp = socket(p->ai_family, p->ai_socktype,
+                p->ai_protocol)) == -1) {
+            perror("server: socket");
+            continue;
         }
+
+        if (setsockopt(s_tcp, SOL_SOCKET, SO_REUSEADDR, &yes,
+                sizeof (int)) == -1) {
+            perror("setsockopt");
+            continue;
+        }
+
+        if (bind(s_tcp, p->ai_addr, p->ai_addrlen) == -1) {
+            close(s_tcp);
+            perror("server: bind");
+            continue;
+        }
+        break;
     }
 
-    if (bind(s_tcp, result->ai_addr, result->ai_addrlen) < 0) {
-        perror("bind");
-        exit(1);
+    if (p == NULL) {
+        fprintf(stderr, "server: failed to bind\n");
+        return 2;
     }
+
+    freeaddrinfo(result);
 
     if (listen(s_tcp, 5) < 0) {
         perror("listen");
         close(s_tcp);
-        exit(1);
+        return 1;
     }
     printf("Waiting for TCP connections ... \n");
-    
-    
-    if ((messenger = accept(s_tcp, (struct sockaddr*) &sa_client, &sa_len)) < 0) {
-        perror("accept");
-        close(s_tcp);
-        exit(1);
-    }
-    
-    
-    
-    
-    //freeaddrinfo(result);
-    
-    
 
 
-    
+
 
     while (1) {
-        if (recv(news, info, sizeof (info), 0) > 0) {
-            printf("Message received: %s \n", info);
+        printf("accept ... \n");
+        sin_size = sizeof their_addr;
+        if ((messenger = accept(s_tcp, (struct sockaddr*) &their_addr, &sin_size)) == -1) {
+            perror("accept");
+            continue;
+        }
+        recv_ready = 1;
+        while (recv_ready) {
+            if (n = (recv(messenger, msg, MSG_LEN, 0)) <= 0) {
+                recv_ready = 0;
+                printf("Recv nothing ... \n");
+                //s_tcp delete?           
+                break;
+            } else {
+                buffer[n] = '\0';
+                printf("Messege recived : \n%s", buffer);
 
-            if ((strncmp(info, GET, CMND_LEN) == 0)) {
 
-                printf("Compare is ok \n");
+                if ((strncmp(msg, GET, CMND_LEN) == 0)) {
 
-                filename = "my test file name";
+                } else if ((strncmp(msg, PUT, CMND_LEN) == 0)) {
 
-                //filename = strtok(info, space_separator);
-                ///filename = strtok(NULL, line_end_separator);
+                } else if ((strncmp(msg, LIST, CMND_LEN) == 0)) {
+                    sprintf(buffer, "this is answer from server (command LIST)");
+                } else {
+                    //help output
+                    printf("wrong command\n");
+                }
 
-                printf("filename is ok \n");
-
-                //stat(filename, &attrib);
-
-                printf("stat is ok \n");
-                sprintf(file_string, "[File]: %s \n",
-                        filename);
-
-                printf("sprintf is ok \n");
-                if (send(news, file_string, strlen(file_string), 0) > 0) {
-                    printf("antwort gesendet \n");
+                if (send(messenger, buffer, strlen(buffer), 0) > 0) {
+                    printf("%s sent...\n", buffer);
                 }
 
             }
+            memset(buffer, 0, strlen(buffer));
+            memset(msg, 0, strlen(msg));
+
         }
-
-
-
-
 
     }
 

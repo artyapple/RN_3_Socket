@@ -62,20 +62,31 @@ int main(int argc, char* args[]) {
 
 
     for (p = result; p != NULL; p = p->ai_next) {
-        if ((s_tcp = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) < 0) {
+        if ((s_tcp = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("TCP Socket");
-            exit(1);
+            continue;
         }
 
-        if (connect(s_tcp, result->ai_addr, result->ai_addrlen) < 0) {
+        if (connect(s_tcp, p->ai_addr, p->ai_addrlen) == -1) {
             perror("Connect");
-            exit(1);
+            continue;
         }
+
+        break;
     }
 
+    if (p == NULL) {
+        fprintf(stderr, "client: failed to connect\n");
+        return 2;
+    }
+
+    
+    
+    
     freeaddrinfo(result);
 
     while (1) {
+        
 
         printf("Enter command: \n");
 
@@ -85,30 +96,27 @@ int main(int argc, char* args[]) {
             printf("connection terminated\n");
             close(s_tcp);
             return 0;
-        } else if ((strncmp(msg, GET, CMND_LEN) == 0)) {
-
         } else if ((strncmp(msg, PUT, CMND_LEN) == 0)) {
-
-        } else if ((strncmp(msg, LIST, CMND_LEN) == 0)) {
-
-        } else {
-            //help output
-            printf("wrong command\n");
+            //do put
+            
+            break;
         }
 
         if ((send(s_tcp, msg, strlen(msg), 0)) > 0) {
-                //printf("Message %s sent.\n", msg); 
-            }
-        
-        if (n = (recv(s_tcp, buffer, strlen(buffer), 0)) > 0) {
-            buffer[n] = '\0';
-            printf("Antwort is! : \n%s", buffer);
+            printf("Message %s sent.\n", msg); 
         }
         
-        //clear();
+        //clear msg?
 
+        if (n = (recv(s_tcp, buffer, sizeof(buffer), 0)) > 0) {
+            //buffer[n] = '\0';
+            printf("%s\n", buffer);
+        }
+        
+        memset(buffer,0,strlen(buffer));
+        memset(msg,0,strlen(msg));
     }
     close(s_tcp);
-
+    return 0;
 }
 
