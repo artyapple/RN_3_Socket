@@ -23,7 +23,7 @@
 #define PUT	"Put "
 #define QUIT	"Quit"
 
-int test(void);
+int listHandler(void);
 
 char buffer[MSG_LEN];
 struct addrinfo *result, *p;
@@ -125,10 +125,7 @@ int main(int argc, char* args[]) {
                 } else if ((strncmp(msg, PUT, CMND_LEN) == 0)) {
 
                 } else if ((strncmp(msg, LIST, CMND_LEN) == 0)) {
-
-
-
-
+                    listHandler();
                 } else {
                     //help output
                     printf("wrong command\n");
@@ -149,7 +146,7 @@ int main(int argc, char* args[]) {
     close(s_tcp);
 }
 
-int test(void) {
+int listHandler(void) {
     DIR *dir;
     struct dirent *ent;
     char list_string[MSG_LEN];
