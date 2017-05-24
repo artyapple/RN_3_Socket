@@ -7,10 +7,11 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <time.h>
+#include <netdb.h>
 
 
 
-#define SRV_PORT	10258
+#define DEF_PORT	10258
 #define MSG_LEN	256
 #define CMND_LEN 4
 #define LIST	"List"
@@ -18,32 +19,46 @@
 #define PUT	"Put "
 #define QUIT	"Quit"
 
-int main() {
-    int s_tcp, news; /* socket descriptor */
-    struct sockaddr_in sa,
-            sa_client; /* socket address structure*/
-    int sa_len = sizeof (struct sockaddr_in), n;
-    char info[256];
-    // to test
-    struct stat attrib; //for accessing file attributes
-    char *filename;
-    char space_separator[] = " ";
-    char line_end_separator[] = "\n";
-    char file_end_separator[] = "\0";
-    char file_string[MSG_LEN];
-    // to test ends
+int main(int argc, char* args[]) {
 
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(SRV_PORT);
-    sa.sin_addr.s_addr = INADDR_ANY;
+    int s_tcp; /* socket descriptor (listener)*/
+    int messenger; /* socket descriptor (send and recv)*/
+    char* port;
+    struct addrinfo *result, *p;
+    struct addrinfo hints;
+    int n;
 
 
-    if ((s_tcp = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) {
-        perror("TCP Socket");
-        exit(1);
+    char msg[MSG_LEN];
+    char buffer[MSG_LEN];
+
+    if (argc == 2) {
+        port = args[1];
+    } else if (argc == 1) {
+        port = DEF_PORT;
+    } else {
+        perror("wrong parameters");
+        return 1;
     }
 
-    if (bind(s_tcp, (struct sockaddr*) &sa, sa_len) < 0) {
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; // use IPv4 or IPv6, whichever
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;
+
+    if (getaddrinfo(NULL, port, &hints, &result) != 0) {
+        perror("getaddrdinfo failed");
+        return 1;
+    }
+
+    for (p = result; p != NULL; p = p->ai_next) {
+        if ((s_tcp = socket(result->ai_family, result->ai_socktype, result->ai_protocol)) < 0) {
+            perror("TCP Socket");
+            exit(1);
+        }
+    }
+
+    if (bind(s_tcp, result->ai_addr, result->ai_addrlen) < 0) {
         perror("bind");
         exit(1);
     }
@@ -54,13 +69,23 @@ int main() {
         exit(1);
     }
     printf("Waiting for TCP connections ... \n");
-
-
-    if ((news = accept(s_tcp, (struct sockaddr*) &sa_client, &sa_len)) < 0) {
+    
+    
+    if ((messenger = accept(s_tcp, (struct sockaddr*) &sa_client, &sa_len)) < 0) {
         perror("accept");
         close(s_tcp);
         exit(1);
     }
+    
+    
+    
+    
+    //freeaddrinfo(result);
+    
+    
+
+
+    
 
     while (1) {
         if (recv(news, info, sizeof (info), 0) > 0) {
