@@ -10,6 +10,8 @@
 #include <netdb.h>
 #include <string.h> /* memset */
 #include <unistd.h> /* close */
+#include <time.h>
+#include <dirent.h>
 
 
 
@@ -21,22 +23,25 @@
 #define PUT	"Put "
 #define QUIT	"Quit"
 
+int test(void);
+
+char buffer[MSG_LEN];
+struct addrinfo *result, *p;
+
 int main(int argc, char* args[]) {
 
     int s_tcp; /* socket descriptor (listener)*/
     int messenger; /* socket descriptor (send and recv)*/
     char* port = "10258";
-    struct addrinfo *result, *p;
+
     struct addrinfo hints;
     int n;
     int yes = 1;
     struct sockaddr_storage their_addr; //client addr info 
     socklen_t sin_size;
     int recv_ready;
-
-
     char msg[MSG_LEN];
-    char buffer[MSG_LEN];
+    //char buffer[MSG_LEN];
 
     //if (argc == 2) {
     //    port = args[1];
@@ -120,7 +125,10 @@ int main(int argc, char* args[]) {
                 } else if ((strncmp(msg, PUT, CMND_LEN) == 0)) {
 
                 } else if ((strncmp(msg, LIST, CMND_LEN) == 0)) {
-                    sprintf(buffer, "this is answer from server (command LIST)");
+
+
+
+
                 } else {
                     //help output
                     printf("wrong command\n");
@@ -139,4 +147,55 @@ int main(int argc, char* args[]) {
     }
 
     close(s_tcp);
+}
+
+int test(void) {
+    DIR *dir;
+    struct dirent *ent;
+    char list_string[MSG_LEN];
+
+    if ((dir = opendir(".")) != NULL) {
+        //empty the string
+
+        memset(list_string, 0, strlen(list_string));
+
+        while ((ent = readdir(dir)) != NULL) {
+            //save every entry of the direction in list_string
+            strncat(list_string, ent->d_name, sizeof (list_string));
+            strncat(list_string, " \n   ", sizeof (list_string));
+        }
+        closedir(dir);
+
+    } else {
+        perror("opendir failed");
+        return 1;
+    }
+
+    char host_name[100];
+    if (gethostname(host_name, sizeof (host_name))) {
+        perror("Error getting Hostname gethostname()");
+        sprintf(host_name, "Unknown Hostname");
+    }
+
+    //get servers locatime
+    char times_string[24];
+    time_t now = time(0);
+    strftime(times_string, sizeof (times_string), "%d.%m.%Y - %H:%M:%S", localtime(&now));
+
+    //fill send-buffer with directory, time, host_name and IP-address
+
+    void *addr;
+    char *ipver;
+
+
+    // TODO ip adresse korrekt erkennen!
+    //struct sockaddr_in *ip = (struct sockaddr_in *) p->ai_addr;
+    //addr = &(ipv4->sin_addr);
+
+    char ipstr[100];
+    inet_ntop(p->ai_family, addr, ipstr, sizeof (ipstr));
+
+    sprintf(buffer, " [Server]: %s from %s\n [Date]: %s \n [Directory]:\n   %s ",
+            host_name, (ipstr), times_string, list_string);
+
 }
