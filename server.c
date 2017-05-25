@@ -27,6 +27,7 @@ int listHandler(void);
 
 char buffer[MSG_LEN];
 struct addrinfo *result, *p;
+char ipstr[100];
 
 int main(int argc, char* args[]) {
 
@@ -62,20 +63,22 @@ int main(int argc, char* args[]) {
         return 1;
     }
 
-
+    //try to connect
     for (p = result; p != NULL; p = p->ai_next) {
+        //create socket descriptor
         if ((s_tcp = socket(p->ai_family, p->ai_socktype,
                 p->ai_protocol)) == -1) {
             perror("server: socket");
             continue;
         }
-
+        // set socket option; indicates that the rules used in validating adresses supplied in a bind() call
+        // should allow reuse of local addresses
         if (setsockopt(s_tcp, SOL_SOCKET, SO_REUSEADDR, &yes,
                 sizeof (int)) == -1) {
             perror("setsockopt");
             continue;
         }
-
+        // bind socket with ip and port
         if (bind(s_tcp, p->ai_addr, p->ai_addrlen) == -1) {
             close(s_tcp);
             perror("server: bind");
@@ -89,17 +92,25 @@ int main(int argc, char* args[]) {
         return 2;
     }
 
+    // server ip
+    void *addr;
+    if(p->ai_family==AF_INET){
+        struct sockaddr_in *ip = (struct sockaddr_in *) p->ai_addr;
+        addr = &(ip->sin_addr);
+    } else {
+        struct sockaddr_in6 *ip = (struct sockaddr_in6 *) p->ai_addr;
+        addr = &(ip->sin6_addr);
+    }
+    inet_ntop(p->ai_family, addr, ipstr, sizeof (ipstr));
+    // frees address information 
     freeaddrinfo(result);
-
+    // socket listening for incoming connections
     if (listen(s_tcp, 5) < 0) {
         perror("listen");
         close(s_tcp);
         return 1;
     }
     printf("Waiting for TCP connections ... \n");
-
-
-
 
     while (1) {
         printf("accept ... \n");
@@ -121,14 +132,14 @@ int main(int argc, char* args[]) {
 
 
                 if ((strncmp(msg, GET, CMND_LEN) == 0)) {
-
+                    getHandler(msg);
                 } else if ((strncmp(msg, PUT, CMND_LEN) == 0)) {
 
                 } else if ((strncmp(msg, LIST, CMND_LEN) == 0)) {
                     listHandler();
                 } else {
-                    //help output
                     printf("wrong command\n");
+                    wrongCmd(msg);
                 }
 
                 if (send(messenger, buffer, strlen(buffer), 0) > 0) {
@@ -146,6 +157,8 @@ int main(int argc, char* args[]) {
     close(s_tcp);
 }
 
+
+// Handler for command "LIST"
 int listHandler(void) {
     DIR *dir;
     struct dirent *ent;
@@ -169,7 +182,8 @@ int listHandler(void) {
     }
 
     char host_name[100];
-    if (gethostname(host_name, sizeof (host_name))) {
+    int host;
+    if (host = gethostname(host_name, sizeof (host_name))) {
         perror("Error getting Hostname gethostname()");
         sprintf(host_name, "Unknown Hostname");
     }
@@ -177,22 +191,56 @@ int listHandler(void) {
     //get servers locatime
     char times_string[24];
     time_t now = time(0);
-    strftime(times_string, sizeof (times_string), "%d.%m.%Y - %H:%M:%S", localtime(&now));
+    strftime(times_string, sizeof (times_string), "%d.%m.%Y %H:%M:%S", localtime(&now));
 
     //fill send-buffer with directory, time, host_name and IP-address
-
-    void *addr;
-    char *ipver;
-
-
-    // TODO ip adresse korrekt erkennen!
-    //struct sockaddr_in *ip = (struct sockaddr_in *) p->ai_addr;
-    //addr = &(ipv4->sin_addr);
-
-    char ipstr[100];
-    inet_ntop(p->ai_family, addr, ipstr, sizeof (ipstr));
 
     sprintf(buffer, " [Server]: %s from %s\n [Date]: %s \n [Directory]:\n   %s ",
             host_name, (ipstr), times_string, list_string);
 
+}
+
+// Handler for command "GET"
+int getHandler(char *cmd){
+    char *whitespace = " ";
+    char *lineend = "\n";
+    char *fname;
+    FILE *fp;
+    struct stat attrib;
+    int fc;
+
+    fname = strtok(cmd, whitespace);
+    fname = strtok(NULL, lineend);
+
+    stat(fname,&attrib);
+    if((int)(attrib.st_size)>MSG_LEN){
+        //warning info, file to big
+    }
+
+    
+    fp = fopen(fname, "rb");
+    if(!fp){
+        perror(fname); return 0;
+    } else {
+        while(fc=fgetc(fp) != EOF){
+            sprintf(str, "%c",fc);
+            strncat()
+        }
+        fclose(fp);
+    }
+    sprintf(buffer, "File: %s \nLast modification: %s\nSize: %s\nContent:\n%s",)
+
+    if(1!=fread(buffer, sizeof(fp), 1, fp)){
+        fclose(fp);
+        return 0;
+    }
+
+    sprintf(buffer, " [FILENAME]: %s\n", fname);
+    
+}
+
+// wrong command handler
+int wrongCmd(char* cmd){
+    char *output;
+    sprintf(buffer, "%s - command entered incorrectly or not supported.\nList of available commands:\n’List’\n’Get <filename>’\n’Put <filename>’\n’Quit’\n",strncpy(output, cmd, strlen(cmd)-1));
 }
