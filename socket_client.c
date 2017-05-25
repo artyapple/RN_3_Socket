@@ -14,38 +14,44 @@
 #include <string.h>
 #include <stdlib.h>
 #include <netdb.h>
+#include <dirent.h>
 
-#define MSG_LEN	2000
+#define MSG_LEN 2000
 #define CMND_LEN 4
-#define LIST	"List"
-#define GET	"Get "
-#define PUT	"Put "
-#define QUIT	"Quit"
+#define LIST "List"
+#define GET "Get "
+#define PUT "Put "
+#define QUIT "Quit"
 //#define SRV_PORT	7777
 
 /*
  * 
  */
-int main(int argc, char* args[]) {
+int main(int argc, char *args[])
+{
 
     int s_tcp; /* socket descriptor */
-    char* port;
-    char* srv_adr;
+    char *port;
+    char *srv_adr;
     struct addrinfo *result, *p;
     struct addrinfo hints;
     int n;
-
 
     char msg[MSG_LEN];
     char buffer[MSG_LEN];
 
     srv_adr = args[1];
 
-    if (argc == 3) {
+    if (argc == 3)
+    {
         port = args[2];
-    } else if (argc == 2) {
+    }
+    else if (argc == 2)
+    {
         port = NULL;
-    } else {
+    }
+    else
+    {
         perror("wrong parameters");
         return 1;
     }
@@ -54,20 +60,22 @@ int main(int argc, char* args[]) {
     hints.ai_family = AF_UNSPEC; // use IPv4 or IPv6, whichever
     hints.ai_socktype = SOCK_STREAM;
 
-    if (getaddrinfo(srv_adr, port, &hints, &result) != 0) {
+    if (getaddrinfo(srv_adr, port, &hints, &result) != 0)
+    {
         perror("getaddrdinfo failed");
         return 1;
     }
 
-
-
-    for (p = result; p != NULL; p = p->ai_next) {
-        if ((s_tcp = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+    for (p = result; p != NULL; p = p->ai_next)
+    {
+        if ((s_tcp = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+        {
             perror("TCP Socket");
             continue;
         }
 
-        if (connect(s_tcp, p->ai_addr, p->ai_addrlen) == -1) {
+        if (connect(s_tcp, p->ai_addr, p->ai_addrlen) == -1)
+        {
             perror("Connect");
             continue;
         }
@@ -75,48 +83,78 @@ int main(int argc, char* args[]) {
         break;
     }
 
-    if (p == NULL) {
+    if (p == NULL)
+    {
         fprintf(stderr, "client: failed to connect\n");
         return 2;
     }
 
-    
-    
-    
     freeaddrinfo(result);
 
-    while (1) {
-        
+    while (1)
+    {
 
         printf("Enter command: \n");
 
         fgets(msg, MSG_LEN, stdin);
 
-        if (strncmp(msg, QUIT, CMND_LEN) == 0) {
+        if (strncmp(msg, QUIT, CMND_LEN) == 0)
+        {
             printf("connection terminated\n");
             close(s_tcp);
             return 0;
-        } else if ((strncmp(msg, PUT, CMND_LEN) == 0)) {
-            //do put
+        }
+        else if ((strncmp(msg, PUT, CMND_LEN) == 0))
+        {
+            char *fname;
+            FILE *fp;
+            int fc;
+            char str[10];
+            char tmp[MSG_LEN];
+            int c;
+
+            fname = strtok(msg, " ");
+            fname = strtok(NULL, "\n");
+
             
-            break;
+
+            fp = fopen(fname, "r");
+            if (fp == NULL)
+            {
+                perror("error file");
+            }
+            else
+            {
+                while ((c = fgetc(fp)) != EOF)
+                {
+                    sprintf(str, "%c", c);
+                    strncat(tmp, str, sizeof(tmp));
+                }
+                fclose(fp);
+            }
+            sprintf(msg, "%s", tmp);
+            //if (send(s_tcp, msg, strlen(msg), 0) > 0)
+            //{
+                //printf("%s sent... \n", msg);
+            //}
         }
 
-        if ((send(s_tcp, msg, strlen(msg), 0)) > 0) {
-            printf("Message %s sent.\n", msg); 
+        if ((send(s_tcp, msg, strlen(msg), 0)) > 0)
+        {
+            printf("Message %s sent.\n", msg);
         }
-        
+
         //clear msg?
 
-        if (n = (recv(s_tcp, buffer, sizeof(buffer), 0)) > 0) {
+        if (n = (recv(s_tcp, buffer, sizeof(buffer), 0)) > 0)
+        {
             //buffer[n] = '\0';
             printf("%s\n", buffer);
         }
-        
-        memset(buffer,0,strlen(buffer));
-        memset(msg,0,strlen(msg));
+
+        memset(buffer, 0, strlen(buffer));
+        memset(msg, 0, strlen(msg));
     }
     close(s_tcp);
     return 0;
 }
-
