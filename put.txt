@@ -1,0 +1,3 @@
+Text für Put ... bla bla
+
+Die Kommunikation erfolgt über verschiedene Protokolle, die mit dem ISO/OSI-Modell strukturiert werden können. Obwohl in der Praxis kein Rechnernetz das ISO/OSI-Modell vollständig abbildet, ist es von entscheidender Bedeutung für das Verständnis von Rechnernetzen, da hierbei aus kleinen grundlegenden Strukturen durch Verknüpfung größere und komplexere Strukturen gebildet werden. Dabei greifen höhere (komplexere) Protokollschichten auf die Funktionalitäten einfacherer darunter liegender Protokollschichten zu.

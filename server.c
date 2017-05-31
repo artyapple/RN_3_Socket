@@ -1,304 +1,326 @@
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-#include <stdio.h>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <time.h>
-#include <netdb.h>
-#include <string.h> /* memset */
-#include <unistd.h> /* close */
 #include <time.h>
 #include <dirent.h>
 
-#define DEF_PORT 10258
-#define MSG_LEN 512
-#define CMND_LEN 4
-#define LIST "List"
-#define GET "Get "
-#define PUT "Put "
-#define QUIT "Quit"
+#define WSPACE      " "
+#define EOFILE         "\0"
+#define EOLINE         "\n"
+#define NAME_LEN        2048
+#define MSG_LEN         2048
+#define BUFFERFSIZE    256 //Size of read buffer
+#define SHORT_LEN       24 
+#define BACKLOG         10
+#define CMD_LEN_LO    4 // long commands length
+#define CMD_LEN_SH    3 // short commands length
 
-//int listHandler(void);
+#define DEFAULT_PORT    "10258"
 
-char buffer[MSG_LEN];
+//Commands
+#define LIST            "List"
+#define GET             "Get"
+#define PUT             "Put"
+#define QUIT            "Quit"    
 
-struct sockaddr_storage their_addr; //client addr info
-struct addrinfo *result, *p;
-char ipstr[100];
-int cport;
+void listHandler(void);
+void getHandler(void);
+void putHandler(void);
+void quitHandler(void);
+void helpHandler(void);
 
-int main(int argc, char *args[])
-{
+struct addrinfo *result, *p; //server info / list
 
-    int s_tcp;     /* socket descriptor (listener)*/
-    int messenger; /* socket descriptor (send and recv)*/
-    char *port = "10258";
+struct in_addr **addr_list;
+
+int s_tcp; //socket descriptor
+int cond; //socket descriptor
+
+char *port; //port used by socket 
+int channelPort; //channel port
+void *ip_addr_cli; //client ip
+void *ip_addr_s; //server ip
+
+char msg[MSG_LEN]; // buffer for recv messages
+char buffer[MSG_LEN]; // buffer for send messages
+char hostname[NAME_LEN];
+char ip_addr[NAME_LEN]; // client ip
+char ip_addr_srv[NAME_LEN]; // server ip
+
+struct sockaddr_storage sock_addr_stor; //cleint socket
+socklen_t sock_addr_len = sizeof (struct sockaddr_storage); // size of socketinfo
+
+int main(int argc, char *argv[]) {
+
+    if (argc == 2) {
+        port = argv[1];
+    } else {
+        printf("V 1.05 Default port: 10258\n");
+        port = DEFAULT_PORT;
+    }
 
     struct addrinfo hints;
-    int n;
-    int yes = 1;
-    socklen_t sin_size;
-    int recv_ready;
-    char msg[MSG_LEN];
-    //char buffer[MSG_LEN];
-
-    //if (argc == 2) {
-    //    port = args[1];
-    //} else if (argc == 1) {
-    //    port = DEF_PORT;
-    //} else {
-    //   perror("wrong parameters");
-    //  return 1;
-    //}
-
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC; // use IPv4 or IPv6, whichever
+    memset(&hints, 0, sizeof (hints));
+    hints.ai_family = AF_INET6;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if (getaddrinfo(NULL, port, &hints, &result) != 0)
-    {
-        perror("getaddrdinfo failed");
-        return 1;
+    //get server name 
+    if (gethostname(hostname, sizeof (hostname))) {
+        perror("gethostname failed: ");
+    }
+
+    //prepare struct addrinfo
+    if (getaddrinfo(NULL, port, &hints, &result) != 0) {
+        perror("getaddrinfo failed: ");
+        exit(EXIT_FAILURE);
     }
 
     //try to connect
-    for (p = result; p != NULL; p = p->ai_next)
-    {
+    for (p = result; p != NULL; p = p->ai_next) {
         //create socket descriptor
-        if ((s_tcp = socket(p->ai_family, p->ai_socktype,
-                            p->ai_protocol)) == -1)
-        {
+        s_tcp = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (s_tcp == -1) {
             perror("server: socket");
             continue;
         }
-        // set socket option; indicates that the rules used in validating adresses supplied in a bind() call
-        // should allow reuse of local addresses
-        if (setsockopt(s_tcp, SOL_SOCKET, SO_REUSEADDR, &yes,
-                       sizeof(int)) == -1)
-        {
-            perror("setsockopt");
-            continue;
-        }
         // bind socket with ip and port
-        if (bind(s_tcp, p->ai_addr, p->ai_addrlen) == -1)
-        {
-            close(s_tcp);
-            perror("server: bind");
-            continue;
+        if (bind(s_tcp, p->ai_addr, p->ai_addrlen) == 0) {
+            break;
         }
-        break;
+        //saddr = (struct sockaddr_in *) p->ai_addr;
+        close(s_tcp);
     }
 
-    if (p == NULL)
-    {
+    if (p == NULL) {
         fprintf(stderr, "server: failed to bind\n");
-        return 2;
+        exit(EXIT_FAILURE);
     }
 
-    // server ip
-    void *addr;
-    if (p->ai_family == AF_INET)
-    {
-        struct sockaddr_in *ip = (struct sockaddr_in *)p->ai_addr;
-        addr = &(ip->sin_addr);
-        cport = &(ip->sin_port);
-    }
-    else
-    {
-        struct sockaddr_in6 *ip = (struct sockaddr_in6 *)p->ai_addr;
-        addr = &(ip->sin6_addr);
-        cport = &(ip->sin6_port);
-    }
-    inet_ntop(p->ai_family, addr, ipstr, sizeof(ipstr));
-    // frees address information
+    // free address information
     freeaddrinfo(result);
-    // socket listening for incoming connections
-    if (listen(s_tcp, 5) < 0)
-    {
+
+    // socket listening for incoming connection
+    if (listen(s_tcp, BACKLOG) == -1) {
         perror("listen");
         close(s_tcp);
-        return 1;
+        exit(EXIT_FAILURE);
     }
+
     printf("Waiting for TCP connections ... \n");
 
-    while (1)
-    {
-        sin_size = sizeof their_addr;
-        if ((messenger = accept(s_tcp, (struct sockaddr *)&their_addr, &sin_size)) == -1)
-        {
-            perror("accept");
-            continue;
-        }
-        recv_ready = 1;
-        while (recv_ready)
-        {
-            if (n = (recv(messenger, msg, MSG_LEN, 0)) <= 0)
-            {
-                recv_ready = 0;
-                printf("Recv nothing ... \n");
-                //s_tcp delete?
-                break;
-            }
-            else
-            {
-                buffer[n] = '\0';
-                printf("Messege recived : \n%s", buffer);
 
-                if ((strncmp(msg, GET, CMND_LEN) == 0))
-                {
-                    getHandler(msg);
-                }
-                else if ((strncmp(msg, PUT, CMND_LEN) == 0))
-                {
-                    putHandler(msg);
-                }
-                else if ((strncmp(msg, LIST, CMND_LEN) == 0))
-                {
-                    listHandler();
-                }
-                else
-                {
-                    printf("wrong command\n");
-                    wrongCmd(msg);
-                }
+    while (1) {
+        //try to receive message 
+        if (recv(cond, msg, MSG_LEN, 0) <= 0) {
 
-                if (send(messenger, buffer, strlen(buffer), 0) > 0)
-                {
-                    printf("sent\n");
-                }
+            if ((cond = accept(s_tcp, (struct sockaddr*) &sock_addr_stor,
+                    &sock_addr_len)) < 0) {
+                perror("accept");
+                close(s_tcp);
+                exit(EXIT_FAILURE);
             }
-            memset(buffer, 0, strlen(buffer));
-            memset(msg, 0, strlen(msg));
+
+            channelPort = ((struct sockaddr_in*) &sock_addr_stor)->sin_port;
+            ip_addr_cli = &((struct sockaddr_in*) &sock_addr_stor)->sin_addr;
+
+            //Convert a Internet address in binary network format   
+            if (((struct sockaddr*) &sock_addr_stor)->sa_family == AF_INET6) {
+                inet_ntop(((struct sockaddr*) &sock_addr_stor)->sa_family,
+                        &((struct sockaddr_in6*) &sock_addr_stor)->sin6_addr,
+                        ip_addr, sizeof (ip_addr));
+            } else {
+                //const uint8_t *bytes = ip_addr_cli.s6_addr;
+                //bytes += 12;
+                //struct in_addr addr = { *(const in_addr_t *)bytes };
+
+                inet_ntop(((struct sockaddr*) &sock_addr_stor)->sa_family, ip_addr_cli,
+                        ip_addr, sizeof (ip_addr));
+            }
+
+        } else { //if message received
+            //use handler
+            if (strncmp(msg, LIST, CMD_LEN_LO) == 0) {
+                listHandler();
+            } else if (strncmp(msg, GET, CMD_LEN_SH) == 0) {
+                getHandler();
+            } else if (strncmp(msg, PUT, CMD_LEN_SH) == 0) {
+                putHandler();
+                //} else if (strncmp(receive_buff, QUIT, CMD_LEN_LO) == 0) {
+                //    quitHandler();
+            } else {
+                helpHandler();
+            }
+
         }
     }
-    close(s_tcp);
 }
 
-// Handler for command "LIST"
-int listHandler(void)
-{
+/*
+ * Handler for command "LIST"
+ * List will prepare a message with the Serverhostname, the used IP-Address, the local time 
+ * and the server directory contents
+ */
+void listHandler(void) {
+    // dirlist buffer
+    char dir_list_buf[MSG_LEN];
+    //stream
     DIR *dir;
-    struct dirent *ent;
-    char list_string[MSG_LEN];
+    struct dirent *dir_entry;
+    time_t currenttime;
+    char time_str[SHORT_LEN];
 
-    if ((dir = opendir(".")) != NULL)
-    {
-        //empty the string
-        memset(list_string, 0, strlen(list_string));
-
-        while ((ent = readdir(dir)) != NULL)
-        {
-            //save every entry of the direction in list_string
-            strncat(list_string, ent->d_name, sizeof(list_string));
-            strncat(list_string, " \n   ", sizeof(list_string));
+    if ((dir = opendir(".")) != NULL) {
+        //reset string
+        memset(dir_list_buf, 0, strlen(dir_list_buf));
+        while ((dir_entry = readdir(dir)) != NULL) {
+            strncat(dir_list_buf, dir_entry->d_name, sizeof (dir_list_buf));
+            strncat(dir_list_buf, " \n   ", sizeof (dir_list_buf));
         }
         closedir(dir);
-    }
-    else
-    {
-        perror("opendir failed");
-        return 1;
+    } else {
+        perror("open dir failed");
+        exit(EXIT_FAILURE);
     }
 
-    char host_name[100];
-    int host;
-    if (host = gethostname(host_name, sizeof(host_name)))
-    {
-        perror("Error getting Hostname gethostname()");
-        sprintf(host_name, "Unknown Hostname");
+    //gettime and format string
+    currenttime = time(NULL);
+    strftime(time_str, sizeof (time_str), "%d.%m.%Y %H:%M:%S",
+            localtime(&currenttime));
+
+
+    struct hostent *he;
+    if ((he = gethostbyname(hostname)) == NULL) { // get the host info
+        herror("gethostbyname");
     }
+    addr_list = (struct in_addr **) he->h_addr_list;
 
-    //get servers locatime
-    char times_string[24];
-    time_t now = time(0);
-    strftime(times_string, sizeof(times_string), "%d.%m.%Y %H:%M:%S", localtime(&now));
+    //prepare send-buffer
+    sprintf(buffer,
+            "Server: %s from %s\n Date: %s\n Directory:\n  %s ",
+            hostname, (inet_ntoa(*addr_list[0])), time_str, dir_list_buf);
 
-    //fill send-buffer with directory, time, host_name and IP-address
-
-    sprintf(buffer, " [Server]: %s from %s\n [Date]: %s \n [Directory]:\n   %s ",
-            host_name, (ipstr), times_string, list_string);
+    //send buffer to client
+    if (send(cond, buffer, strlen(buffer), 0) > 0) {
+        puts("Send...\n");
+    }
 }
 
-// Handler for command "GET"
-int getHandler(char *cmd)
-{
-    char *fname;
-    FILE *fp;
-    struct stat attrib;
-    int fc;
-    char str[10];
-    char tmp[MSG_LEN];
-    int c;
+/**/
 
-    fname = strtok(cmd, " ");
-    fname = strtok(NULL, "\n");
+/* Handler for command "GET"
+ * The textfile contents at the local server directory will be prepared for sending to the client.
+ */
+void getHandler(void) {
+    char string[MSG_LEN];
+    //file attributes
+    struct stat fileAttrBuf;
+    FILE *pf;
+    char *filename;
 
-    stat(fname, &attrib);
+    //get filename
+    filename = strtok(msg, WSPACE);
+    filename = strtok(NULL, EOLINE);
 
-    sprintf(tmp, "File: %s \nLast modification: %sSize: %d Bytes\nContents: \n",
-            fname, ctime(&attrib.st_mtim), (int)attrib.st_size);
+    //Get file attributes
+    stat(filename, &fileAttrBuf);
+    //prepare head
+    sprintf(string,
+            "File: %s \nLast modification: %s\nSize: %d Bytes\nContents:\n",
+            filename, ctime((const time_t *) &fileAttrBuf.st_mtim),
+            (int) fileAttrBuf.st_size);
 
-    if ((int)(attrib.st_size) > MSG_LEN)
-    {
-        //warning info
-        char warn[50] = "===Warning:File cant be received completely!===";
-        strncat(tmp, warn, sizeof(tmp));
-    }
+    char content[BUFFERFSIZE];
+    char buf[BUFFERFSIZE];
+    // open file and get content
+    pf = fopen(filename, "r");
 
-    fp = fopen(fname, "r");
-    if (fp == NULL)
-    {
-        perror("error file");
-    }
-    else
-    {
-        while ((c = fgetc(fp)) != EOF)
-        {
-
-            sprintf(str, "%c", c);
-            strncat(tmp, str, sizeof(tmp));
+    if (pf == NULL) {
+        perror("open file");
+    } else {
+        while (feof(pf) == 0) {
+            if (fgets(buf, BUFFERFSIZE, pf) != NULL) {
+                sprintf(content, "%s", buf);
+                strncat(string, content, sizeof (string));
+                printf("file: %s \n", content);
+            }
         }
-        fclose(fp);
+        fclose(pf);
     }
 
-    //fille send buffer
-    sprintf(buffer, "%s", tmp);
+    //Write to output buffer
+    sprintf(buffer, " Server: %s from %s \n %s", hostname, ip_addr,
+            string);
+    //send buffer to client
+    if (send(cond, buffer, strlen(buffer), 0) > 0) {
+        printf("%s ... sent\n", buffer);
+    }
 }
 
-// wrong command handler
-int wrongCmd(char *cmd)
-{
-    char *output;
-    sprintf(buffer, "%s - command entered incorrectly or not supported.\nList of available commands:\n’List’\n’Get <filename>’\n’Put <filename>’\n’Quit’\n", strncpy(output, cmd, strlen(cmd) - 1));
-}
+/*
+ * putHandler handles a push-operation
+ * the client is sending a textfile
+ * the server does a console output an saves the file
+ */
+void putHandler(void) {
+    struct sockaddr *hostAddr;
+    char client_name[NAME_LEN];
 
-int putHandler(char *cmd)
-{
-    FILE *fp;
-    char cname[100];
-    char *filecontent, *filename;
+    hostAddr = (struct sockaddr*) &sock_addr_stor;
+    //get client address
+    if (getnameinfo(hostAddr, sizeof (hostAddr), client_name, NAME_LEN, NULL, 0,
+            0) != 0) {
+        perror(("resolve adress: "));
+        sprintf(client_name, "%s", ip_addr);
+    }
+
+    char *filename;
+    //content of received file
+    char *filecontent;
     size_t filesize;
-
-    if (getnameinfo((struct sockaddr *)&their_addr, sizeof((struct sockaddr *)&their_addr), cname, 100, NULL, 0, 0) != 0)
-    {
-        perror(("Cannot resolve adress\n"));
-    }
-
-    filename = strtok(cmd, " ");
-    filename = strtok(NULL, " ");
-
-    filecontent = strtok(NULL, EOF);
+    //get filename filename
+    filename = strtok(msg, WSPACE);
+    filename = strtok(NULL, WSPACE);
+    //extract content from file
+    filecontent = strtok(NULL, EOFILE);
     filesize = strlen(filecontent);
 
+    //create and write to file
+    FILE * rcv_fileptr;
+    rcv_fileptr = fopen(filename, "w");
+    fwrite(filecontent, 1, filesize, rcv_fileptr);
+    fclose(rcv_fileptr);
 
-    fp = fopen(filename, "w");
-    fwrite(filecontent, 1, filesize, fp);
-    fclose(fp);
-
-   
-    sprintf(buffer, " OK %s:%d \n ", cname, cport);
+    sprintf(buffer, " OK %s: %d \n", client_name, channelPort);
+    //send buffer
+    if (send(cond, buffer, strlen(buffer), 0) > 0) {
+        printf("%s ... sent\n", buffer);
+    }
 }
+
+/*
+ *  unknown command handler
+ *  The incorrect message and a help message for correct usage will be prepared
+ */
+void helpHandler(void) {
+    printf("Command %s is wrong\n", msg);
+    sprintf(buffer, "Command entered incorrectly or not supported.\nList of available commands:\n’List’\n’Get <filename>’\n’Put <filename>’\n’Quit’\n");
+    if (send(cond, buffer, strlen(buffer), 0) > 0) {
+        printf("%s sent...\n", buffer);
+    }
+}
+
+///**
+// * Handles quit request
+// **/
+//void quitHandler(void) {
+//    close(cond);
+//    exit(EXIT_SUCCESS);
+//}

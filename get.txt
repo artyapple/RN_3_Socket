@@ -1,0 +1,3 @@
+Text für Get ...
+
+Ein Rechnernetz ist ein Zusammenschluss verschiedener technischer, primär selbstständiger elektronischer Systeme (insbesondere Computer, aber auch Sensoren, Aktoren, Agenten und sonstiger funktechnischer Komponenten usw.), der die Kommunikation der einzelnen Systeme untereinander ermöglicht. Ziel ist hierbei z. B. die gemeinsame Nutzung von Ressourcen wie Netzwerkdruckern, Servern, Mediendateien und Datenbanken. Wichtig ist auch die Möglichkeit zur zentralen Verwaltung von Netzwerkgeräten, Netzwerkbenutzern, deren Berechtigungen und Daten. Besondere Bedeutung hat heute auch die direkte Kommunikation zwischen den Netzwerkbenutzern (Chat, VoIP-Telefonie etc.).

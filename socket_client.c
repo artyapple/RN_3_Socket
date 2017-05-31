@@ -1,160 +1,137 @@
-/* 
- * File:   socket_client.c
- * Author: networker
- *
- * Created on 23 May 2017, 12:38
- */
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <resolv.h>
 #include <stdlib.h>
-#include <netdb.h>
-#include <dirent.h>
+#include <sys/select.h>
 
-#define MSG_LEN 2000
-#define CMND_LEN 4
-#define LIST "List"
-#define GET "Get "
-#define PUT "Put "
+#define WSPACE " "
+#define EOLINE "\n"
+#define EOFILE '\0'
+#define MSG_LEN 2048
+#define LONG_LEN 4
+#define SHORT_LEN 3
+#define PUT "Put"
 #define QUIT "Quit"
-//#define SRV_PORT	7777
 
-/*
- * 
- */
-int main(int argc, char *args[])
+int s_tcp; // socket descriptor
+int connected = 0;
+
+int main(int argc, char *argv[])
 {
 
-    int s_tcp; /* socket descriptor */
-    char *port;
-    char *srv_adr;
-    struct addrinfo *result, *p;
+    struct addrinfo *server, *p;
     struct addrinfo hints;
-    int n;
-
-    char msg[MSG_LEN];
-    char buffer[MSG_LEN];
-
-    srv_adr = args[1];
+    char *port;
 
     if (argc == 3)
     {
-        port = args[2];
-    }
-    else if (argc == 2)
-    {
-        port = NULL;
+        port = argv[2];
     }
     else
     {
-        perror("wrong parameters");
-        return 1;
+        printf("Wrong arguments\n");
+        exit(1);
     }
 
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC; // use IPv4 or IPv6, whichever
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_V4MAPPED;
 
-    if (getaddrinfo(srv_adr, port, &hints, &result) != 0)
+    //get connection info
+    if (getaddrinfo(argv[1], port, &hints, &server) != 0)
     {
-        perror("getaddrdinfo failed");
-        return 1;
+        perror("getaddrinfo()");
+        exit(1);
     }
 
-    for (p = result; p != NULL; p = p->ai_next)
+    //try to connect
+    for (p = server; p != NULL; p = p->ai_next)
     {
-        if ((s_tcp = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
+        s_tcp = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (s_tcp == -1)
         {
-            perror("TCP Socket");
             continue;
         }
-
-        if (connect(s_tcp, p->ai_addr, p->ai_addrlen) == -1)
+        if (connect(s_tcp, p->ai_addr, p->ai_addrlen) != -1)
         {
-            perror("Connect");
-            continue;
+            connected = 1;
+            break;
         }
-
-        break;
+        close(s_tcp);
     }
+    //free port
+    freeaddrinfo(server);
 
-    if (p == NULL)
+    while (connected)
     {
-        fprintf(stderr, "client: failed to connect\n");
-        return 2;
-    }
+        char *filename;
+        char msg[MSG_LEN];
+        char buffer[MSG_LEN];
 
-    freeaddrinfo(result);
+        char string[MSG_LEN];
+        char content[SHORT_LEN];
+        int buf; //for char
+        int rply;
 
-    while (1)
-    {
-
-        printf("Enter command: \n");
-
+        printf("\nEnter command: ");
+        //read from console
         fgets(msg, MSG_LEN, stdin);
 
-        if (strncmp(msg, QUIT, CMND_LEN) == 0)
+        //quit - close socket deskriptor
+        if (strncmp(msg, QUIT, LONG_LEN) == 0)
         {
-            printf("connection terminated\n");
             close(s_tcp);
-            return 0;
+            exit(0);
         }
-        else if ((strncmp(msg, PUT, CMND_LEN) == 0))
+        //put the file on the server
+        else if (strncmp(msg, PUT, SHORT_LEN) == 0)
         {
-            char *fname;
-            FILE *fp;
-            int fc;
-            char str[10];
-            char tmp[MSG_LEN];
-            int c;
+            //prepare filename
+            filename = strtok(msg, WSPACE);
+            filename = strtok(NULL, EOLINE);
 
-            fname = strtok(msg, " ");
-            fname = strtok(NULL, "\n");
-
-            
-
-            fp = fopen(fname, "r");
-            if (fp == NULL)
+            //read file and write it to content
+            FILE *pf;
+            pf = fopen(filename, "r");
+            if (pf == NULL)
             {
-                perror("error file");
+                perror("open file");
             }
             else
             {
-                while ((c = fgetc(fp)) != EOF)
+                while ((buf = fgetc(pf)) != EOF)
                 {
-                    sprintf(str, "%c", c);
-                    strncat(tmp, str, sizeof(tmp));
+                    sprintf(content, "%c", buf);
+                    strncat(string, content, sizeof(string));
                 }
-                fclose(fp);
+                fclose(pf);
             }
-            sprintf(msg, "%s", tmp);
-            //if (send(s_tcp, msg, strlen(msg), 0) > 0)
-            //{
-                //printf("%s sent... \n", msg);
-            //}
+            sprintf(msg, "Put %s %s", filename, string);
+            //send buffer
+            send(s_tcp, msg, strlen(msg), 0);
         }
-
-        if ((send(s_tcp, msg, strlen(msg), 0)) > 0)
+        else
         {
-            printf("Message %s sent.\n", msg);
+            send(s_tcp, msg, strlen(msg), 0);
         }
 
-        //clear msg?
-
-        if (n = (recv(s_tcp, buffer, sizeof(buffer), 0)) > 0)
+        if ((rply = recv(s_tcp, buffer, sizeof(buffer), 0)) > 0)
         {
-            //buffer[n] = '\0';
-            printf("%s\n", buffer);
+            buffer[rply] = EOFILE;
+            printf("Answer:\n%s", buffer);
         }
 
+        //reset buffer
         memset(buffer, 0, strlen(buffer));
         memset(msg, 0, strlen(msg));
     }
-    close(s_tcp);
-    return 0;
+    return EXIT_SUCCESS;
 }
